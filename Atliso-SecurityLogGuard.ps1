@@ -1,3 +1,19 @@
+<#PSScriptInfo
+.VERSION 1.0.1
+.GUID 1d77e939-7b61-49a3-9e29-3ebfb0cc1703
+.AUTHOR Atliso
+.COMPANYNAME Atliso
+.COPYRIGHT (c) 2026 Atliso. MIT License.
+.TAGS Intune Security EventLog CrashOnAuditFail Lockout Remediation
+.LICENSEURI https://github.com/Atliso-Dev/security-log-guard/blob/main/LICENSE
+.PROJECTURI https://atliso.com/blog/windows-11-security-log-full-lockout-fix
+.REQUIREDMODULES 
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES Never clears the Security log unless the archive succeeded. Every wevtutil call is checked.
+#>
+
 <#
 .SYNOPSIS
     Atliso-SecurityLogGuard.ps1 - Detect and fix the Windows Security log "only admins can log on" lockout.
@@ -94,13 +110,26 @@ if ($lockoutTripped) {
     $stamp   = Get-Date -Format yyyyMMdd-HHmmss
     $archive = Join-Path (Split-Path -Parent $LogPath) "Security-archive-$stamp.evtx"
     wevtutil epl Security "$archive"
+    # Never clear what we failed to keep: without the archive, clearing loses the audit trail.
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "Archiving the Security log to $archive failed (wevtutil exit $LASTEXITCODE). Not clearing it. Check free disk space and that this runs as SYSTEM." "ERROR"
+        exit 1
+    }
     wevtutil cl Security
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "Clearing the Security log failed (wevtutil exit $LASTEXITCODE). The archive is at $archive. CrashOnAuditFail left at 2." "ERROR"
+        exit 1
+    }
     Set-ItemProperty $lsaPath -Name CrashOnAuditFail -Value 1
     Write-Log "Lockout cleared: log archived to $archive, cleared, CrashOnAuditFail reset from 2 to 1."
 }
 
 # Set the log to overwrite as needed at the target size so this can't recur.
 wevtutil sl Security "/ms:$TargetMaxSizeBytes" /rt:false
+if ($LASTEXITCODE -ne 0) {
+    Write-Log "Setting the Security log to overwrite as needed failed (wevtutil exit $LASTEXITCODE)." "ERROR"
+    exit 1
+}
 Write-Log "Security log set to overwrite as needed, max size $TargetMaxSizeBytes bytes."
 
 exit 0

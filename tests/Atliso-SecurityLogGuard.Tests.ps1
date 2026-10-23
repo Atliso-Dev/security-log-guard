@@ -84,9 +84,7 @@ Describe 'Atliso-SecurityLogGuard' {
     Should -Invoke Set-ItemProperty -Times 0
   }
 
-  # Known gap in 1.0.0: wevtutil exit codes are not checked, so a failed archive is still followed by a clear.
-  # Un-skip with the fix.
-  It 'an archive that fails stops before clearing the log, exit 1' -Skip {
+  It 'an archive that fails stops before clearing the log, exit 1' {
     Set-Machine -Mode Retain -PctFull 100 -Full $true -Crash 2
     Mock wevtutil { $global:LASTEXITCODE = 5 } -ParameterFilter { $args[0] -eq 'epl' }
     Mock wevtutil { $global:LASTEXITCODE = 0 } -ParameterFilter { $args[0] -ne 'epl' }
@@ -94,5 +92,13 @@ Describe 'Atliso-SecurityLogGuard' {
     $r.Exit | Should -Be 1
     Should -Invoke wevtutil -Times 0 -ParameterFilter { $args[0] -eq 'cl' }
     Should -Invoke Set-ItemProperty -Times 0
+  }
+
+  It 'a failed switch to overwrite as needed exits 1 so Intune shows the remediation failed' {
+    Set-Machine -Mode Retain -PctFull 40
+    Mock wevtutil { $global:LASTEXITCODE = 5 }
+    $r = Invoke-Guard @{ WhatIf = $false }
+    $r.Exit | Should -Be 1
+    $r.Output | Should -Match 'overwrite as needed failed'
   }
 }
